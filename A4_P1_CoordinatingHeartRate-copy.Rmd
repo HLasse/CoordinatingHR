@@ -8,7 +8,6 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-p_load(tidyverse, crqa, readr, groupdata2, gridExtra, stringr)
 ```
 
 ## Analysing Heart Rate and Respiration data
@@ -55,34 +54,19 @@ N.B. to give you a bit more data I included data from last year (Study1) and fro
   More recurrence on turn taking Resp than on conversation Resp woohoo
 
 ```{r}
+p_load(tidyverse, crqa, readr, groupdata2, gridExtra, stringr)
+
+#reading all data from group 5
 Sync1 = read_csv("CleanData/Study2_G5_T1_Synchronous.csv")
 Turn1 = read_csv("CleanData/Study2_G5_T2_TurnTaking.csv")
-Self1 = read_csv("CleanData/Study2_G5_T3_Conversation.csv")
+Conv1 = read_csv("CleanData/Study2_G5_T3_Conversation.csv")
 
-test = "CleanData/Study2_G5_T3_Conversation.csv"
-#study = str_extract(test, "Study(\\d)") 
-#group = str_extract(test, "G(\\d)")
-#trial = str_extract(test, "T(\\d)")
-#cond = gsub('.{4}$', '', strsplit(test, "_")[[1]][4])
-
-str_extract(test, "(\\w+)$")
-"(\w+)$"
-
-lol = strsplit(test, "_")[[1]]
-lol
-gsub('.{4}$', '', lol[4])
-
-gsub('.{4}$', '', strsplit(test, "_")[[1]][4])
-
-
+#premature plots just to see what we're working with
 Sync1Resp1 = ggplot(Sync1, aes(time, Resp1)) + geom_line() + geom_line(aes(time, Resp2, color = "red"))
 Sync1Resp1
-Sync1Resp2 = ggplot(Sync1, aes(time, Resp2)) + geom_line()
 
 Sync1HR1 = ggplot(Sync1, aes(time, HR1)) + geom_line() + geom_line(aes(time, HR2, color = "red"))
-Sync1HR1
 Sync1HR1 # det er noget pis
-Sync1HR2
 
 #Downsample
 Sync  = Sync1 %>%    
@@ -93,23 +77,23 @@ Turn = Turn1 %>%
   group(n= 100, method= 'greedy') %>%    
   dplyr::summarise(time= mean(time,na.rm=T), HR1 = mean(HR1,na.rm=T), HR2 = mean(HR2,na.rm=T), Resp1 =  mean(Resp1,na.rm=T), Resp2 = mean(Resp2,na.rm=T)) 
 
-Self = Self1 %>%    
+Conv = Conv1 %>%    
   group(n= 100, method= 'greedy') %>%    
   dplyr::summarise(time= mean(time,na.rm=T), HR1 = mean(HR1,na.rm=T), HR2 = mean(HR2,na.rm=T), Resp1 =  mean(Resp1,na.rm=T), Resp2 = mean(Resp2,na.rm=T)) 
 
 Sync$condition = "synchronous"
 Turn$condition = "turntaking"
-Self$condition = "conversation"
+Conv$condition = "conversation"
 
-df = rbind(Sync, Turn, Self)
+df = rbind(Sync, Turn, Conv)
 
-#Rescale
+#Rescale (bør nok gøres for hver condition i stedet for samlet ligesom når vi downsampler)
 df$Resp1S=scale(df$Resp1)  
 df$Resp2S=scale(df$Resp2)  
 df$HR1S=scale(df$HR1) 
 df$HR2S=scale(df$HR2)
 
-
+#removing outliers
 removeOuts <- function(ts,threshold){
   ts[ts > (mean(ts,na.rm=T) + (threshold*sd(ts,na.rm=T))) |
        ts < (mean(ts,na.rm=T) - (threshold*sd(ts,na.rm=T)))] =  mean(ts,na.rm=T)   
@@ -123,11 +107,13 @@ df$HR2S=removeOuts(df$HR2S, threshold)
 df$Resp1S=removeOuts(df$Resp1S, threshold)
 df$Resp2S=removeOuts(df$Resp2S, threshold)
 
+#making subsets (tror overhovedet ikke vi skal samle det på noget tidspunkt men bare holde dem adskilt hele vejen)
 sync = subset(df, condition == "synchronous")
 turn = subset(df, condition == "turntaking")
 conv = subset(df, condition == "conversation")
 
-Sync1$plotz = ggplot(sync, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
+#pretty plots
+syncHR = ggplot(sync, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
 syncResp = ggplot(sync, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
 
 turnHR = ggplot(turn, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
@@ -186,24 +172,47 @@ image(RP, xlab = "", ylab = "", col = cols)
 radius = median(radius) + 1.2 seems to be good according to Riccardo
 
 ```{r preprocessing function}
-
+#####
+#LOOP/FUNKTION TANKER
+#Der skal nok bygges 3/4 funktioner
+#1. til preprocessing:
+#   - Downsampling
+#   - Rescaling
+#   - Removing outliers
+#Alt skal gemmes til en dataframe som vi kan arbejde videre med.
+#
+#2. til plots
+#Funktion der laver grid.arrange plottet for alle grupper. 
+#Output skal enten være at den printer/gemmer dem allesammen som filer så vi selv kan scrolle igennem, ellers skal
+#de gemmes (til en liste/df??) på en eller anden sindrig måde..
+#
+#3. til at finde optimal parameters
+#Tror pretty much vi kan genbruge den vi tidligere har lavet
+#
+#4. til at køre crqa
+#Igen, med lidt held kan vi nærmest genbruge den gamle funktion
+#
+#Generelt er der meget hjælp at hente i A3_P1!
+#####
 preproz = function(filename){
   folder = "CleanData/"
   df = read_csv = paste(folder, filename, sep="")
-  #Downsample
+
+    #Adding study identification colomns
+  study = str_extract(filename, "Study(\\d)") 
+  group = str_extract(filename, "G(\\d)")
+  trial = str_extract(filename, "T(\\d)")
+  cond = gsub('.{4}$', '', strsplit(filename, "_")[[1]][4])
+  
+    #Downsample
   df = df %>%    
   group(n= 100, method= 'greedy') %>%    
   dplyr::summarise(time= mean(time,na.rm=T), HR1 = mean(HR1,na.rm=T), HR2 = mean(HR2,na.rm=T), Resp1 =  mean(Resp1,na.rm=T), Resp2 = mean(Resp2,na.rm=T)) 
-  #Adding condition column
-  cond = 
-Sync$condition = "synchronous"
-test = "CleanData/Study2_G5_T3_Conversation.csv"
-study = str_extract(test, "Study(\\d)") 
-group = str_extract(test, "G(\\d)")
-trial = str_extract(test, "T(\\d)")
-cond = gsub('.{4}$', '', strsplit(test, "_")[[1]][4])
+
   #Rescale
   #Remove outliers
+  #Save to df
+  #Return df
 }
 
 ```
