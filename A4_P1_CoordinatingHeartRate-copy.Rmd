@@ -61,6 +61,9 @@ Sync1 = read_csv("CleanData/Study2_G5_T1_Synchronous.csv")
 Turn1 = read_csv("CleanData/Study2_G5_T2_TurnTaking.csv")
 Conv1 = read_csv("CleanData/Study2_G5_T3_Conversation.csv")
 
+
+test = read.csv("CleanData/Study1_G1_T1_Synchronous.csv")
+
 #premature plots just to see what we're working with
 Sync1Resp1 = ggplot(Sync1, aes(time, Resp1)) + geom_line() + geom_line(aes(time, Resp2, color = "red"))
 Sync1Resp1
@@ -194,25 +197,110 @@ radius = median(radius) + 1.2 seems to be good according to Riccardo
 #
 #Generelt er der meget hjælp at hente i A3_P1!
 #####
-preproz = function(filename){
+preproz = function(filename){ #requires the removeOuts function and a set threshold
   folder = "CleanData/"
-  df = read_csv = paste(folder, filename, sep="")
-
-    #Adding study identification colomns
-  study = str_extract(filename, "Study(\\d)") 
-  group = str_extract(filename, "G(\\d)")
-  trial = str_extract(filename, "T(\\d)")
-  cond = gsub('.{4}$', '', strsplit(filename, "_")[[1]][4])
-  
-    #Downsample
+  df = read_csv(paste(folder, filename, sep=""))
+   
+  #Downsample
   df = df %>%    
   group(n= 100, method= 'greedy') %>%    
   dplyr::summarise(time= mean(time,na.rm=T), HR1 = mean(HR1,na.rm=T), HR2 = mean(HR2,na.rm=T), Resp1 =  mean(Resp1,na.rm=T), Resp2 = mean(Resp2,na.rm=T)) 
-
+   
   #Rescale
-  #Remove outliers
-  #Save to df
+  df$Resp1S=scale(df$Resp1)  
+  df$Resp2S=scale(df$Resp2)  
+  df$HR1S=scale(df$HR1) 
+  df$HR2S=scale(df$HR2)
+   
+  #Removing outliers
+  df$HR1S=removeOuts(df$HR1S,threshold)
+  df$HR2S=removeOuts(df$HR2S, threshold)
+  df$Resp1S=removeOuts(df$Resp1S, threshold)
+  df$Resp2S=removeOuts(df$Resp2S, threshold)
+  
+  #Adding study identification colomns
+  df$study = str_extract(filename, "Study(\\d)") 
+  df$group = str_extract(filename, "G(\\d)")
+  df$trial = str_extract(filename, "T(\\d)")
+  df$condition = gsub('.{4}$', '', strsplit(filename, "_")[[1]][4])
+  
+  #Calculating optimal parameters
+  #setting parameters (Riccardo's code) 
+  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+  #has to be set to NULL first, otherwise it won't work if there's more than one trial
+  opt_param = NULL
+  
+  #getting the optimal parameters and saving to opt_param. Using try so it doesn't crash if there is an error
+  #try min.rec = 3 and max.rec = 5 
+  #First getting parameters for HR data
+  opt_paramHR = try(optimizeParam(df$HR1S, df$HR2S, par, min.rec = 3.5, max.rec = 4.5))
+  #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
+  if (length(opt_param) > 2) {
+    df$optRadiusHR = opt_paramHR[1]
+    df$optEmbdimHR = opt_paramHR[2]
+    df$optDelayHR = opt_paramHR[3]
+    } else {
+    df$optRadiusHR = NA
+    df$optEmbdimHR = NA
+    df$optDelayHR = NA
+    }
+  
+  opt_paramResp = try(optimizeParam(df$Resp1S, df$Resp2S, par, min.rec = 3.5, max.rec = 4.5))
+  #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
+  if (length(opt_param) > 2) {
+    df$optRadiusResp = opt_paramHR[1]
+    df$optEmbdimResp = opt_paramHR[2]
+    df$optDelayResp = opt_paramHR[3]
+    } else {
+    df$optRadiusResp = NA
+    df$optEmbdimResp = NA
+    df$optDelayResp = NA
+    }
+
+  
+  #Adding plots
+  HR = ggplot(df, aes(time, HR1S)) + 
+    geom_line() + 
+    geom_line(aes(time, HR2S, color = "red")) + 
+    ggtitle(filename) +
+    theme(legend.position = "none")
+  Resp = ggplot(df, aes(time, Resp1S)) + 
+    geom_line() + 
+    geom_line(aes(time, Resp2S, color = "red")) + 
+    ggtitle(filename) +
+    theme(legend.position = "none")
+
+  plots = grid.arrange(HR, Resp)
+
   #Return df
+  return(df)
+
+}
+folder = "CleanData/"
+files = list.files(path = "CleanData/", pattern = "*.csv")
+processed = lapply(files, preproz)
+processed = bind_rows(processed)
+
+testout = preproz("Study2_G5_T3_Conversation.csv")
+testout = bind_rows(testout)
+```
+
+```{r}
+#Plot funktion
+plotz <- function(df) {
+ result <- ggplot(data=mtcars, aes(x=wt, y=mpg)) + geom_point() 
+ # you can forget the return below because R will take the last expression which is result as return value
+ # return(result)
+ syncHR = ggplot(sync, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
+ syncResp = ggplot(sync, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
+
+turnHR = ggplot(turn, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
+turnResp = ggplot(turn, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
+
+convHR = ggplot(conv, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
+convResp = ggplot(conv, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
+
+grid.arrange(syncHR, syncResp, turnHR, turnResp, convHR, convResp)
 }
 
 ```
