@@ -176,27 +176,17 @@ radius = median(radius) + 1.2 seems to be good according to Riccardo
 
 ```{r preprocessing function}
 #####
-#LOOP/FUNKTION TANKER
-#Der skal nok bygges 3/4 funktioner
-#1. til preprocessing:
-#   - Downsampling
-#   - Rescaling
-#   - Removing outliers
-#Alt skal gemmes til en dataframe som vi kan arbejde videre med.
-#
-#2. til plots
-#Funktion der laver grid.arrange plottet for alle grupper. 
-#Output skal enten være at den printer/gemmer dem allesammen som filer så vi selv kan scrolle igennem, ellers skal
-#de gemmes (til en liste/df??) på en eller anden sindrig måde..
-#
-#3. til at finde optimal parameters
-#Tror pretty much vi kan genbruge den vi tidligere har lavet
-#
-#4. til at køre crqa
-#Igen, med lidt held kan vi nærmest genbruge den gamle funktion
-#
-#Generelt er der meget hjælp at hente i A3_P1!
+#BIG FAT FUNCTION
 #####
+
+#dependency for the preproz function
+removeOuts <- function(ts,threshold){
+  ts[ts > (mean(ts,na.rm=T) + (threshold*sd(ts,na.rm=T))) |
+       ts < (mean(ts,na.rm=T) - (threshold*sd(ts,na.rm=T)))] =  mean(ts,na.rm=T)   
+  return(ts)}
+threshold=2.5 
+
+#function to downsample, rescale, remove outliers, print plots for HR and respiration as well as finding optimal parameters for crqa. Outputs a dataframe and prints plots
 preproz = function(filename){ #requires the removeOuts function and a set threshold
   folder = "CleanData/"
   df = read_csv(paste(folder, filename, sep=""))
@@ -223,39 +213,48 @@ preproz = function(filename){ #requires the removeOuts function and a set thresh
   df$group = str_extract(filename, "G(\\d)")
   df$trial = str_extract(filename, "T(\\d)")
   df$condition = gsub('.{4}$', '', strsplit(filename, "_")[[1]][4])
+  df$filename = filename
   
-  #Calculating optimal parameters
-  #setting parameters (Riccardo's code) 
-  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
-  #has to be set to NULL first, otherwise it won't work if there's more than one trial
-  opt_param = NULL
+  ###Calculating optimal parameters
+  #setting parameters
+  par = list(lgM =  50, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  
+minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+
+  #getting the optimal parameters and saving to opt_paramHR/Resp. Using try so it doesn't crash if there is an error
   
-  #getting the optimal parameters and saving to opt_param. Using try so it doesn't crash if there is an error
-  #try min.rec = 3 and max.rec = 5 
   #First getting parameters for HR data
   opt_paramHR = try(optimizeParam(df$HR1S, df$HR2S, par, min.rec = 3.5, max.rec = 4.5))
   #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
-  if (length(opt_param) > 2) {
-    df$optRadiusHR = opt_paramHR[1]
-    df$optEmbdimHR = opt_paramHR[2]
-    df$optDelayHR = opt_paramHR[3]
-    } else {
-    df$optRadiusHR = NA
-    df$optEmbdimHR = NA
-    df$optDelayHR = NA
-    }
+  if (length(opt_paramHR) > 2) {
+    #need to unlist the parameters otherwise they can't be used for later calculations (no idea why it makes them a list in the first place)
+   df$optRadiusHR = unlist(opt_paramHR[1])
+   df$optEmbdimHR = unlist(opt_paramHR[2])
+   df$optDelayHR = unlist(opt_paramHR[3])
+   } else {
+   df$optRadiusHR = NA
+   df$optEmbdimHR = NA
+   df$optDelayHR = NA
+   }
   
   opt_paramResp = try(optimizeParam(df$Resp1S, df$Resp2S, par, min.rec = 3.5, max.rec = 4.5))
   #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
-  if (length(opt_param) > 2) {
-    df$optRadiusResp = opt_paramHR[1]
-    df$optEmbdimResp = opt_paramHR[2]
-    df$optDelayResp = opt_paramHR[3]
+  if (length(opt_paramResp) > 2) {
+    df$optRadiusResp = unlist(opt_paramResp[1])
+    df$optEmbdimResp = unlist(opt_paramResp[2])
+    df$optDelayResp = unlist(opt_paramResp[3])
     } else {
     df$optRadiusResp = NA
     df$optEmbdimResp = NA
     df$optDelayResp = NA
     }
+
+  #creating new csv file with the new columns
+  name = str_extract(filename, '.*(?=\\.csv)') #removing .csv from filename
+  name = paste(name, "PROCESSED.csv", sep = '_')
+  #creating new folder to store the files in 
+  dir.create("preprocessed", showWarnings = FALSE) #stops warnings if folder already exists
+  #writing file to the new folder
+  write.csv(df, file.path("preprocessed", name), row.names=FALSE)
 
   
   #Adding plots
@@ -276,33 +275,79 @@ preproz = function(filename){ #requires the removeOuts function and a set thresh
   return(df)
 
 }
-folder = "CleanData/"
+
+testout = preproz("Study2_G5_T3_Conversation.csv")
+testout = bind_rows(testout)
+
+
 files = list.files(path = "CleanData/", pattern = "*.csv")
 processed = lapply(files, preproz)
 processed = bind_rows(processed)
 
-testout = preproz("Study2_G5_T3_Conversation.csv")
-testout = bind_rows(testout)
+#Creating new column with optimal values
+processed = processed %>% 
+  mutate(opt_dimHR = median(processed$optEmbdimHR, na.rm = T), 
+         opt_delayHR = median(processed$optDelayHR, na.rm = T), 
+         opt_radHR = median(processed$optRadiusHR, na.rm = T),
+         opt_dimResp = median(processed$optEmbdimResp, na.rm = T), 
+         opt_delayResp = median(processed$optDelayResp, na.rm = T), 
+         opt_radResp = median(processed$optRadiusResp, na.rm = T))
+
+#write.csv(processed, file = "processedData.csv")
+
+
 ```
 
 ```{r}
-#Plot funktion
-plotz <- function(df) {
- result <- ggplot(data=mtcars, aes(x=wt, y=mpg)) + geom_point() 
- # you can forget the return below because R will take the last expression which is result as return value
- # return(result)
- syncHR = ggplot(sync, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
- syncResp = ggplot(sync, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
 
-turnHR = ggplot(turn, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
-turnResp = ggplot(turn, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
-
-convHR = ggplot(conv, aes(time, HR1S)) + geom_line() + geom_line(aes(time, HR2S, color = "red"))
-convResp = ggplot(conv, aes(time, Resp1S)) + geom_line() + geom_line(aes(time, Resp2S, color = "red"))
-
-grid.arrange(syncHR, syncResp, turnHR, turnResp, convHR, convResp)
+#processed = read_csv("processedData.csv")
+#function to perform crqa on all datasets
+rqa_extractor = function(filename){ #making a function which applies the optimal parameters and then saves the rqa results
+  folder = "CleanData/"
+  df = read_csv(paste(folder, filename, sep=""))
+  
+  #add the mutate function here to add the new columns to each dataset before performing crqa
+  
+  
+  #crqa for HR data
+  result = try(crqa(df$HR1S, df$HR2S, embed = df$opt_dimHR, delay = df$opt_delayHR, radius = df$opt_radHR, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
+  if (length(result) > 1){
+    df$RR.HR = result[1]
+    df$DET.HR = result[2]
+    df$NRLINE.HR = result[3]
+    df$maxL.HR = result[4]
+    df$L.HR = result[5]
+    df$ENTR.HR = result[6]
+    df$rENTR.HR = result[7]
+    df$LAM.HR = result[8]
+    df$TT.HR = result[9]
+  } else {
+    df$RR.HR = NA
+    df$DET.HR = NA
+    df$NRLINE.HR = NA
+    df$maxL.HR = NA
+    df$L.HR = NA
+    df$ENTR.HR = NA
+    df$rENTR.HR = NA
+    df$LAM.HR = NA
+    df$TT.HR = NA
+  }
+  
+  return(df)
 }
+testt = rqa_extractor()
 
+string = "Study2_G5_T3_Conversation.csv"
+
+
+paste(string, "i.csv", sep = '_')
+
+
+str_extract(string, '.*(?=\\.csv)')
+
+
+testout = preproz("Study2_G5_T3_Conversation.csv")
+testout = bind_rows(testout)
 ```
 
 
