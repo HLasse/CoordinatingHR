@@ -269,8 +269,21 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
     ggtitle(filename) +
     theme(legend.position = "none")
 
-  plots = grid.arrange(HR, Resp)
+  #printing the arranged plots to console
+  grid.arrange(HR, Resp)
+  #grid.arrange can't be saved but will only print. Using arrangeGrob to save to variable and then to disk
+  plots = arrangeGrob(HR, Resp) #generates g
+  
+  #creating a unique name for each plot based on the filename
+  plotname = str_extract(filename, '.*(?=\\.csv)') #removing .csv from filename
+  plotname = paste(plotname, "PLOT.png", sep = '_')
+  #creating new folder to store the files in 
+  dir.create("plots", showWarnings = FALSE) #stops warnings if folder already exists
+  #writing file to the new folder
+  #ggsave(plotname, plot = plots, path = "plots/")
+  ggsave(file=plotname, plots, path = "plots/")
 
+  
   #Return df
   return(df)
 
@@ -300,14 +313,26 @@ processed = processed %>%
 
 ```{r}
 
-#processed = read_csv("processedData.csv")
-#function to perform crqa on all datasets
-rqa_extractor = function(filename){ #making a function which applies the optimal parameters and then saves the rqa results
-  folder = "CleanData/"
-  df = read_csv(paste(folder, filename, sep=""))
+processed = read.csv("processedData.csv")
+
+#function to perform crqa on all datasets USE THE PROCESSED DATASETS 
+#DOESN'T WORK PROPERLY - UNLY USES THE FIRST VALUE!?!?
+rqaFun = function(filename, shuf = FALSE){ #making a function which applies the optimal parameters and then saves the rqa results
+  folder = "preprocessed/"
+  df = read.csv(paste(folder, filename, sep=""))
   
-  #add the mutate function here to add the new columns to each dataset before performing crqa
+  #adding columns with the median optimal parameters to each dataset REQUIRES YOU TO LOAD THE "PROCESSED" DF
+  df = df %>% 
+  mutate(opt_dimHR = median(processed$optEmbdimHR, na.rm = T), 
+         opt_delayHR = median(processed$optDelayHR, na.rm = T), 
+         opt_radHR = median(processed$optRadiusHR, na.rm = T),
+         opt_dimResp = median(processed$optEmbdimResp, na.rm = T), 
+         opt_delayResp = median(processed$optDelayResp, na.rm = T), 
+         opt_radResp = median(processed$optRadiusResp, na.rm = T))
   
+  if(shuf = TRUE) {
+    df = sample_frac(df, replace = T)
+  }
   
   #crqa for HR data
   result = try(crqa(df$HR1S, df$HR2S, embed = df$opt_dimHR, delay = df$opt_delayHR, radius = df$opt_radHR, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
@@ -333,21 +358,39 @@ rqa_extractor = function(filename){ #making a function which applies the optimal
     df$TT.HR = NA
   }
   
+  #for respiration data
+    result = try(crqa(df$Resp1S, df$Resp2S, embed = df$opt_dimResp, delay = df$opt_delayResp, radius = df$opt_radResp, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
+  if (length(result) > 1){
+    df$RR.Resp = result[1]
+    df$DET.Resp = result[2]
+    df$NRLINE.Resp = result[3]
+    df$maxL.Resp = result[4]
+    df$L.Resp = result[5]
+    df$ENTR.Resp = result[6]
+    df$rENTR.Resp = result[7]
+    df$LAM.Resp = result[8]
+    df$TT.Resp = result[9]
+  } else {
+    df$RR.Resp = NA
+    df$DET.Resp = NA
+    df$NRLINE.Resp = NA
+    df$maxL.Resp = NA
+    df$L.Resp = NA
+    df$ENTR.Resp = NA
+    df$rENTR.Resp = NA
+    df$LAM.Resp = NA
+    df$TT.Resp = NA
+  }
+  
+  
   return(df)
 }
-testt = rqa_extractor()
-
-string = "Study2_G5_T3_Conversation.csv"
+testt = rqaFun("Study2_G5_T3_Conversation_PROCESSED.csv")
 
 
-paste(string, "i.csv", sep = '_')
-
-
-str_extract(string, '.*(?=\\.csv)')
-
-
-testout = preproz("Study2_G5_T3_Conversation.csv")
-testout = bind_rows(testout)
+preprocessed_files = list.files(path = "preprocessed/", pattern = "*.csv")
+final_df = lapply(preprocessed_files, rqaFun)
+final_df = bind_rows(final_df)
 ```
 
 
@@ -357,12 +400,37 @@ testout = bind_rows(testout)
  - run crqa and save the output. NB. which delay, embed, radius parameters should you use?
  - statistically compare the crqa indexes in real and shuffled pairs
  
+```{r}
+shuf = read.csv("preprocessed/Study2_G5_T3_Conversation_PROCESSED.csv")
+
+#WITH OR WITHOUT REPLACEMENT? (PROBABLY WITH)
+shuffled = sample_frac(shuf, replace = T)
+
+
+bigshuf = processed %>% 
+  group_by(filename) %>%
+  sample_frac()
+
+#IS IT REALLY THAT EASY?
+
+
+preprocessed_files = list.files(path = "preprocessed/", pattern = "*.csv")
+shuffled_df = lapply(preprocessed_files, rqaFun(shuf = T))
+#which parameters to use?? 
+
+```
+ 
+ 
 ### TRICKY! Creating controls: surrogate pair controls
  - Per each real pair, identify at least one surrogate pair (matching one of the participants, with somebody doing the same task, but in a different pair). Tip: Celine will share a commented script
  - Run crqa on all the surrogate pairs and save the output. NB. which delay, embed, radius parameters should you use?
  - Test whether crqa shows a difference between real and surrogate pairs
  
 - 4 different ways to make surrogate pairs.. 
+```{r}
+
+```
+
 
 ### Testing effects of conditions
  - make a (probably underpowered) mixed model testing effects of the different conditions on heart rate and respiration coordination
