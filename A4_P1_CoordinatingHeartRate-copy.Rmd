@@ -235,7 +235,8 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
    df$optEmbdimHR = NA
    df$optDelayHR = NA
    }
-  
+
+  #Now for respiration data
   opt_paramResp = try(optimizeParam(df$Resp1S, df$Resp2S, par, min.rec = 3.5, max.rec = 4.5))
   #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
   if (length(opt_paramResp) > 2) {
@@ -314,6 +315,19 @@ processed = processed %>%
 ```{r}
 
 processed = read.csv("processedData.csv")
+
+optParams = processed %>%
+  group_by(filename) %>%
+  summarise(opt_dimHR = median(optEmbdimHR, na.rm = T), 
+         opt_delayHR = median(optDelayHR, na.rm = T), 
+         opt_radHR = median(optRadiusHR, na.rm = T),
+         opt_dimResp = median(optEmbdimResp, na.rm = T), 
+         opt_delayResp = median(optDelayResp, na.rm = T), 
+         opt_radResp = median(optRadiusResp, na.rm = T))
+
+optParams
+#det er noget pis
+
 
 #function to perform crqa on all datasets USE THE PROCESSED DATASETS 
 #DOESN'T WORK PROPERLY - UNLY USES THE FIRST VALUE!?!?
