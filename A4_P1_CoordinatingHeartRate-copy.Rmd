@@ -54,7 +54,7 @@ N.B. to give you a bit more data I included data from last year (Study1) and fro
   More recurrence on turn taking Resp than on conversation Resp woohoo
 
 ```{r}
-p_load(tidyverse, crqa, readr, groupdata2, gridExtra, stringr)
+p_load(tidyverse, crqa, readr, groupdata2, gridExtra, stringr, lmerTest, MuMIn)
 
 #reading all data from group 5
 Sync1 = read_csv("CleanData/Study2_G5_T1_Synchronous.csv")
@@ -187,7 +187,7 @@ removeOuts <- function(ts,threshold){
 threshold=2.5 
 
 #function to downsample, rescale, remove outliers, print plots for HR and respiration as well as finding optimal parameters for crqa. Outputs a dataframe and prints plots
-preproz = function(filename){ #requires the removeOuts function and a set threshold
+preproz = function(filename, graphs = T, noOutliers = T){ #requires the removeOuts function and a set threshold
   folder = "CleanData/"
   df = read_csv(paste(folder, filename, sep=""))
    
@@ -196,21 +196,23 @@ preproz = function(filename){ #requires the removeOuts function and a set thresh
   group(n= 100, method= 'greedy') %>%    
   dplyr::summarise(time= mean(time,na.rm=T), HR1 = mean(HR1,na.rm=T), HR2 = mean(HR2,na.rm=T), Resp1 =  mean(Resp1,na.rm=T), Resp2 = mean(Resp2,na.rm=T)) 
    
+  if(noOutliers == T) {
+  #Removing outliers
+  df$HR1=removeOuts(df$HR1,threshold)
+  df$HR2=removeOuts(df$HR2, threshold)
+  df$Resp1=removeOuts(df$Resp1, threshold)
+  df$Resp2=removeOuts(df$Resp2, threshold)
+  }
+  
   #Rescale
   df$Resp1S=scale(df$Resp1)  
   df$Resp2S=scale(df$Resp2)  
   df$HR1S=scale(df$HR1) 
   df$HR2S=scale(df$HR2)
-   
-  #Removing outliers
-  df$HR1S=removeOuts(df$HR1S,threshold)
-  df$HR2S=removeOuts(df$HR2S, threshold)
-  df$Resp1S=removeOuts(df$Resp1S, threshold)
-  df$Resp2S=removeOuts(df$Resp2S, threshold)
   
   #Adding study identification colomns
   df$study = str_extract(filename, "Study(\\d)") 
-  df$group = str_extract(filename, "G(\\d)")
+  df$group = str_extract(filename, "G(\\d+)")
   df$trial = str_extract(filename, "T(\\d)")
   df$condition = gsub('.{4}$', '', strsplit(filename, "_")[[1]][4])
   df$filename = filename
@@ -223,7 +225,7 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
   #getting the optimal parameters and saving to opt_paramHR/Resp. Using try so it doesn't crash if there is an error
   
   #First getting parameters for HR data
-  opt_paramHR = try(optimizeParam(df$HR1S, df$HR2S, par, min.rec = 3.5, max.rec = 4.5))
+  opt_paramHR = try(optimizeParam(df$HR1S, df$HR2S, par, min.rec = 2, max.rec = 8))
   #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
   if (length(opt_paramHR) > 2) {
     #need to unlist the parameters otherwise they can't be used for later calculations (no idea why it makes them a list in the first place)
@@ -237,7 +239,7 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
    }
 
   #Now for respiration data
-  opt_paramResp = try(optimizeParam(df$Resp1S, df$Resp2S, par, min.rec = 3.5, max.rec = 4.5))
+  opt_paramResp = try(optimizeParam(df$Resp1S, df$Resp2S, par, min.rec = 2, max.rec = 8))
   #if the optimize function succeeded, save the results to the dataframe - if not, put NAs 
   if (length(opt_paramResp) > 2) {
     df$optRadiusResp = unlist(opt_paramResp[1])
@@ -257,7 +259,7 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
   #writing file to the new folder
   write.csv(df, file.path("preprocessed", name), row.names=FALSE)
 
-  
+  if(graphs == T) {
   #Adding plots
   HR = ggplot(df, aes(time, HR1S)) + 
     geom_line() + 
@@ -283,7 +285,7 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
   #writing file to the new folder
   #ggsave(plotname, plot = plots, path = "plots/")
   ggsave(file=plotname, plots, path = "plots/")
-
+  }
   
   #Return df
   return(df)
@@ -292,7 +294,6 @@ minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10, 
 
 testout = preproz("Study2_G5_T3_Conversation.csv")
 testout = bind_rows(testout)
-
 
 files = list.files(path = "CleanData/", pattern = "*.csv")
 processed = lapply(files, preproz)
@@ -309,7 +310,9 @@ processed = processed %>%
 
 #write.csv(processed, file = "processedData.csv")
 
+#removing files 1,2, 4, 5 as well as all selfpaced conditions
 
+###REMOMVE 1, 2, 4, 5
 ```
 
 ```{r}
@@ -318,7 +321,13 @@ processed = read.csv("processedData.csv")
 
 optParams = processed %>%
   group_by(filename) %>%
-  summarise(opt_dimHR = median(optEmbdimHR, na.rm = T), 
+  summarise(optEmbdimHR = median(optEmbdimHR, na.rm = T), 
+         optDelayHR = median(optDelayHR, na.rm = T), 
+         optRadiusHR = median(optRadiusHR, na.rm = T),
+         optEmbdimResp = median(optEmbdimResp, na.rm = T), 
+         optDelayResp = median(optDelayResp, na.rm = T), 
+         optRadiusResp = median(optRadiusResp, na.rm = T)) %>%
+  mutate(opt_dimHR = median(optEmbdimHR, na.rm = T), 
          opt_delayHR = median(optDelayHR, na.rm = T), 
          opt_radHR = median(optRadiusHR, na.rm = T),
          opt_dimResp = median(optEmbdimResp, na.rm = T), 
@@ -330,36 +339,32 @@ optParams
 
 
 #function to perform crqa on all datasets USE THE PROCESSED DATASETS 
-#DOESN'T WORK PROPERLY - UNLY USES THE FIRST VALUE!?!?
+
 rqaFun = function(filename, shuf = FALSE){ #making a function which applies the optimal parameters and then saves the rqa results
   folder = "preprocessed/"
   df = read.csv(paste(folder, filename, sep=""))
   
-  #adding columns with the median optimal parameters to each dataset REQUIRES YOU TO LOAD THE "PROCESSED" DF
-  df = df %>% 
-  mutate(opt_dimHR = median(processed$optEmbdimHR, na.rm = T), 
-         opt_delayHR = median(processed$optDelayHR, na.rm = T), 
-         opt_radHR = median(processed$optRadiusHR, na.rm = T),
-         opt_dimResp = median(processed$optEmbdimResp, na.rm = T), 
-         opt_delayResp = median(processed$optDelayResp, na.rm = T), 
-         opt_radResp = median(processed$optRadiusResp, na.rm = T))
-  
-  if(shuf = TRUE) {
-    df = sample_frac(df, replace = T)
+
+  if(shuf == TRUE) {
+    sampleList = c("Resp1S", "Resp2S", "HR1S", "HR2S")
+    df = df[, colnames(df) %in% sampleList] %>% #select columns to sample 
+    lapply(. , function(x) sample(x)) %>% 
+    cbind(. , df[,! colnames(df) %in% sampleList]) #bind with remaining columns
+ 
   }
   
   #crqa for HR data
-  result = try(crqa(df$HR1S, df$HR2S, embed = df$opt_dimHR, delay = df$opt_delayHR, radius = df$opt_radHR, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
+  result = try(crqa(df$HR1S, df$HR2S, embed = optParams$opt_dimHR[1], delay = optParams$opt_delayHR[1], radius = optParams$opt_radHR[1], normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
   if (length(result) > 1){
-    df$RR.HR = result[1]
-    df$DET.HR = result[2]
-    df$NRLINE.HR = result[3]
-    df$maxL.HR = result[4]
-    df$L.HR = result[5]
-    df$ENTR.HR = result[6]
-    df$rENTR.HR = result[7]
-    df$LAM.HR = result[8]
-    df$TT.HR = result[9]
+    df$RR.HR = unlist(result[1])
+    df$DET.HR = unlist(result[2])
+    df$NRLINE.HR = unlist(result[3])
+    df$maxL.HR = unlist(result[4])
+    df$L.HR = unlist(result[5])
+    df$ENTR.HR = unlist(result[6])
+    df$rENTR.HR = unlist(result[7])
+    df$LAM.HR = unlist(result[8])
+    df$TT.HR = unlist(result[9])
   } else {
     df$RR.HR = NA
     df$DET.HR = NA
@@ -373,17 +378,17 @@ rqaFun = function(filename, shuf = FALSE){ #making a function which applies the 
   }
   
   #for respiration data
-    result = try(crqa(df$Resp1S, df$Resp2S, embed = df$opt_dimResp, delay = df$opt_delayResp, radius = df$opt_radResp, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
+    result = try(crqa(df$Resp1S, df$Resp2S, embed = optParams$opt_dimResp[1], delay = optParams$opt_delayResp[1], radius = optParams$opt_radResp[1], normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE))
   if (length(result) > 1){
-    df$RR.Resp = result[1]
-    df$DET.Resp = result[2]
-    df$NRLINE.Resp = result[3]
-    df$maxL.Resp = result[4]
-    df$L.Resp = result[5]
-    df$ENTR.Resp = result[6]
-    df$rENTR.Resp = result[7]
-    df$LAM.Resp = result[8]
-    df$TT.Resp = result[9]
+    df$RR.Resp = unlist(result[1])
+    df$DET.Resp = unlist(result[2])
+    df$NRLINE.Resp = unlist(result[3])
+    df$maxL.Resp = unlist(result[4])
+    df$L.Resp = unlist(result[5])
+    df$ENTR.Resp = unlist(result[6])
+    df$rENTR.Resp = unlist(result[7])
+    df$LAM.Resp = unlist(result[8])
+    df$TT.Resp = unlist(result[9])
   } else {
     df$RR.Resp = NA
     df$DET.Resp = NA
@@ -399,12 +404,47 @@ rqaFun = function(filename, shuf = FALSE){ #making a function which applies the 
   
   return(df)
 }
-testt = rqaFun("Study2_G5_T3_Conversation_PROCESSED.csv")
-
+test = rqaFun("Study2_G5_T3_Conversation_PROCESSED.csv")
+test = bind_rows(test)
 
 preprocessed_files = list.files(path = "preprocessed/", pattern = "*.csv")
 final_df = lapply(preprocessed_files, rqaFun)
 final_df = bind_rows(final_df)
+
+summa = function(df){
+summarised_df = df  %>%
+  group_by(filename) %>%
+  summarise(RR.HR = mean(RR.HR, na.rm = T), 
+         DET.HR = mean(DET.HR, na.rm = T), 
+         NRLINE.HR = mean(NRLINE.HR, na.rm = T),
+         maxL.HR = mean(maxL.HR, na.rm = T), 
+         L.HR = mean(L.HR, na.rm = T), 
+         ENTR.HR = mean(ENTR.HR, na.rm = T),
+         rENTR.HR = mean(rENTR.HR, na.rm = T),
+         LAM.HR = mean(LAM.HR, na.rm = T),
+         TT.HR = mean(TT.HR, na.rm = T),
+         
+         RR.Resp = mean(RR.Resp, na.rm = T), 
+         DET.Resp = mean(DET.Resp, na.rm = T), 
+         NRLINE.Resp = mean(NRLINE.Resp, na.rm = T),
+         maxL.Resp = mean(maxL.Resp, na.rm = T), 
+         L.Resp = mean(L.Resp, na.rm = T), 
+         ENTR.Resp = mean(ENTR.Resp, na.rm = T),
+         rENTR.Resp = mean(rENTR.Resp, na.rm = T),
+         LAM.Resp = mean(LAM.Resp, na.rm = T),
+         TT.Resp = mean(TT.Resp, na.rm = T),
+
+         condition = condition[1],
+         group = group[1],
+         trial = trial[1],
+         study = study[1])
+  return(summarised_df)
+}
+      ##do the same for shuf to compare
+
+
+#write.csv(final_df, "final_df.csv")
+
 ```
 
 
@@ -415,25 +455,29 @@ final_df = bind_rows(final_df)
  - statistically compare the crqa indexes in real and shuffled pairs
  
 ```{r}
-shuf = read.csv("preprocessed/Study2_G5_T3_Conversation_PROCESSED.csv")
+#test
+shuf = rqaFun("Study2_G5_T3_Conversation_PROCESSED.csv", shuf = T)
+nonshuf = rqaFun("Study2_G5_T3_Conversation_PROCESSED.csv", shuf = F)
 
-#WITH OR WITHOUT REPLACEMENT? (PROBABLY WITH)
-shuffled = sample_frac(shuf, replace = T)
+shuff = function(df){
+    sampleList = c("Resp1S", "Resp2S", "HR1S", "HR2S")
+    df_sample = df[, colnames(df) %in% sampleList] %>% #select columns to sample 
+    lapply(. , function(x) sample(x)) %>% 
+    cbind(. , df[,! colnames(df) %in% sampleList]) #bind with remaining columns
+    }
 
+test = read.csv("preprocessed/Study2_G5_T3_Conversation_PROCESSED.csv")
+test2 = shuff(test)
 
-bigshuf = processed %>% 
-  group_by(filename) %>%
-  sample_frac()
-
-#IS IT REALLY THAT EASY?
-
-
+#which parameters to use?? - using the same as for the non-shuffled to keep the values comparable (since the values are highly dependent on embdim)
 preprocessed_files = list.files(path = "preprocessed/", pattern = "*.csv")
-shuffled_df = lapply(preprocessed_files, rqaFun(shuf = T))
-#which parameters to use?? 
+
+shuffled_df = lapply(preprocessed_files, rqaFun, shuf = T)
+shuffled_df = bind_rows(shuffled_df)
+shufff = summa(shuffled_df)
+#write.csv(shuffled_df, "shuffled_df.csv")
 
 ```
- 
  
 ### TRICKY! Creating controls: surrogate pair controls
  - Per each real pair, identify at least one surrogate pair (matching one of the participants, with somebody doing the same task, but in a different pair). Tip: Celine will share a commented script
@@ -441,15 +485,217 @@ shuffled_df = lapply(preprocessed_files, rqaFun(shuf = T))
  - Test whether crqa shows a difference between real and surrogate pairs
  
 - 4 different ways to make surrogate pairs.. 
-```{r}
 
+#RQA extractor
+```{r}
+#defining a function to extract rqa values 
+rqa_extractor = function(t1, t2, embed, delay, radius){ #making a function which applied the optimal parameters and then saves the rqa results 
+
+  result = try(crqa(t1, t2, embed = embed, delay = delay, radius = radius, normalize = 0, rescale = 0, mindiagline = 2, minvertline = 2, tw = 0, whiteline = FALSE, recpt = FALSE)) 
+  if (length(result) > 1){ 
+    results_df = data.frame(RR = result[1], DET = result[2], NRLINE = result[3], maxL = result[4], L = result[5], ENTR = result[6], rENTR = result[7], LAM = result[8], TT = result[9]) 
+  } 
+  else { results_df = data.frame(RR = NA, DET = NA, NRLINE = NA, maxL = NA, L = NA, ENTR = NA, rENTR = NA, LAM = NA, TT = NA) 
+  } 
+  return(results_df) 
+}
+
+
+
+#KØR ALT IGEN WUHU
+```
+
+
+#Surrogate pairs (Kenneths kode)
+```{r}
+i = 1 #Loop for surrogate pairs 
+all_dat = read.csv("final_df.csv")
+
+for (g in seq(unique(all_dat$group))){ #loop through all the groups 
+  g1 = unique(all_dat$group)[g]
+  non_g1 = unique(all_dat$group)[unique(all_dat$group)!= g1] #a list of groups which does not include g1
+  g2 = sample(non_g1)[1] #randomly select a group which is in the non_g1 vector
+  print(g1)
+
+  for (c in unique(all_dat$condition)){ #looping through conditions 
+    temp1 = subset(all_dat, group == g1 & condition == c) #e.g. the first group in condition 'turntaking
+    temp2 = subset(all_dat, group == g2 & condition == c) #e.g. the second group in condition 'turntaking
+
+      #doing rqa
+    result_Resp = rqa_extractor(t1 = temp1$Resp1S, t2 = temp2$Resp2S, embed = optParams$opt_dimResp, 
+                                delay = optParams$opt_delayResp, radius = optParams$opt_radResp)
+
+    result_HR = rqa_extractor(t1 = temp1$HR1S, t2 = temp2$HR2S, embed = optParams$opt_dimHR, 
+                              delay = optParams$opt_delayHR, radius = optParams$opt_radHR)
+
+    colnames(result_Resp) = paste(colnames(result_Resp), "Resp", sep = ".")
+    colnames(result_HR) = paste(colnames(result_HR), "HR", sep = ".")
+    
+    temp = cbind(result_Resp, result_HR)
+    temp$condition = c
+    temp$group1 = g1
+    temp$group2 = g2
+
+    if (i == 1){ #create df
+      surPair_rqa = temp
+      i = 2 #if you have already done this then don't do it again
+    } else { #append to df
+      surPair_rqa = rbind(surPair_rqa, temp)
+    }
+  print(c)
+  }
+}
+
+#write.csv(surPair_rqa, "surPairs.csv")
+```
+
+
+#testing the effect of surrogate pairs
+```{r}
+#reading original data sets
+og_df = read.csv("final_df.csv")
+shuf_df = read.csv("shuffled_df.csv")
+surPair_rqa = read.csv("surPairs.csv")
+surPair_rqa$X = NULL
+
+sum_og_df = summa(og_df)
+sum_shuf_df = summa(shuf_df)
+
+
+sum_shuf_df$type = "Shuffled"
+sum_shuf_df$trial = NULL
+sum_shuf_df$study = NULL
+sum_shuf_df$filename = NULL
+sum_og_df$type = "Original"
+sum_og_df$trial = NULL
+sum_og_df$study = NULL
+sum_og_df$filename = NULL
+surPair_rqa$type = "Surrogate"
+
+surPair_rqa$group = surPair_rqa$group1
+surPair_rqa = select(surPair_rqa, -c(group1, group2))
+
+final_df = rbind(sum_shuf_df, sum_og_df, surPair_rqa)
+
+final_df$type = as.factor(final_df$type)
+final_df$type = relevel(final_df$type, ref = "Shuffled")
+
+#write.csv(final_df, "final_df.csv")
+```
+
+#modelz
+```{r}
+mRR = lmer(RR.HR ~ type + (1|group), final_df)
+mDET = lmer(DET.HR ~ type + (1|group), final_df) 
+mNRLINE = lmer(NRLINE.HR ~ type + (1|group), final_df) 
+mTT = lmer(TT.HR ~ type + (1|group), final_df)
+mL = lmer(L.HR ~ type + (1|group), final_df)
+mMaxL = lmer(maxL.HR ~ type + (1|group), final_df)
+mENTR = lmer(ENTR.HR ~ type + (1|group), final_df) 
+mrENTR = lmer(rENTR.HR ~ type + (1|group), final_df) 
+mLAM = lmer(LAM.HR ~ type + (1|group), final_df) 
+
+
+
+
+summary(mRR)
+summary(mDET)  #significant!!!!!!!!!!1111
+summary(mTT)  #also significant!!11!1!1!
+summary(mL)  #woohoo!!
+summary(mMaxL) #helzz yeah
+summary(mNRLINE)
+summary(mENTR) #yep
+summary(mrENTR) #yepyep
+summary(mLAM) #yepyepyep
+
+mRR = lmer(RR.Resp ~ type  + (1|group), final_df)
+mDET = lmer(DET.Resp ~ type + (1|group), final_df)
+mTT = lmer(TT.Resp ~ type + (1|group), final_df)
+mL = lmer(L.Resp ~ type + (1|group), final_df)
+mMaxL = lmer(maxL.Resp ~ type + (1|group), final_df)
+mNRLINE = lmer(NRLINE.Resp ~ type + (1|group), final_df) 
+mENTR = lmer(ENTR.Resp ~ type + (1|group), final_df) 
+mrENTR = lmer(rENTR.Resp ~ type + (1|group), final_df) 
+mLAM = lmer(LAM.Resp ~ type + (1|group), final_df) 
+
+
+
+summary(mRR)
+summary(mDET) #signifz
+summary(mTT) #sniiii
+summary(mL) #extra snugiz
+summary(mMaxL) #woopsz
+summary(mNRLINE) #yas
+summary(mENTR) #yas
+summary(mrENTR) #yas
+summary(mLAM) #helt sikkert
+
+r.squaredGLMM(m2)
 ```
 
 
 ### Testing effects of conditions
  - make a (probably underpowered) mixed model testing effects of the different conditions on heart rate and respiration coordination
  - N.B: would it make sense to include surrogate pairs? and if so how? what would that tell you?
+ 
+ 
+```{r}
+mRR = lmer(RR.HR ~ condition + (1|group), final_df)
+mDET = lmer(DET.HR ~ condition + (1|group), final_df) 
+mTT = lmer(TT.HR ~ condition + (1|group), final_df)
+mL = lmer(L.HR ~ condition + (1|group), final_df)
+mMaxL = lmer(maxL.HR ~ condition + (1|group), final_df)
+mNRLINE = lmer(NRLINE.HR ~ condition + (1|group), final_df) 
+mENTR = lmer(ENTR.HR ~ condition + (1|group), final_df) 
+mrENTR = lmer(rENTR.HR ~ condition + (1|group), final_df) 
+mLAM = lmer(LAM.HR ~ condition + (1|group), final_df) 
+
+
+
+summary(mRR)
+summary(mDET)
+summary(mTT) 
+summary(mL)  
+summary(mMaxL)
+summary(mNRLINE) #synchronous
+r.squaredGLMM(mNRLINE)
+summary(mENTR)
+summary(mrENTR)
+summary(mLAM)
+
+
+
+mRR = lmer(RR.Resp ~ condition  + (1|group), final_df)
+mDET = lmer(DET.Resp ~ condition + (1|group), final_df)
+mTT = lmer(TT.Resp ~ condition + (1|group), final_df)
+mL = lmer(L.Resp ~ condition + (1|group), final_df)
+mMaxL = lmer(maxL.Resp ~ condition + (1|group), final_df)
+mNRLINE = lmer(NRLINE.Resp ~ condition + (1|group), final_df) 
+mENTR = lmer(ENTR.Resp ~ condition + (1|group), final_df) 
+mrENTR = lmer(rENTR.Resp ~ condition + (1|group), final_df) 
+mLAM = lmer(LAM.Resp ~ condition + (1|group), final_df) 
+
+
+
+summary(mRR) #turntaking
+r.squaredGLMM(mRR)
+summary(mDET) 
+summary(mTT) 
+summary(mL) 
+summary(mMaxL) 
+summary(mNRLINE)
+summary(mENTR)
+summary(mrENTR)
+summary(mLAM)
+
+```
 
 ### Effects of respiration coordination on heart rate coordination
  - describe how you would test those.
  - Optional: run the models and report them
+ 
+ 
+ 
+ ```{r}
+#se kenneths besked
+```
